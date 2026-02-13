@@ -8,8 +8,8 @@ via a simulated clock.
 
 ```bash
 # 1. Create & activate a virtualenv (Python 3.11+)
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
 
 # 2. Install dependencies
 pip install -r requirements.txt

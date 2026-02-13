@@ -1,14 +1,20 @@
-"""Service for parsing unstructured text into a StructuredEvent."""
+"""Service for parsing unstructured text into a ProposedEvent."""
 
 from __future__ import annotations
 
-from app.domain.models import StructuredEvent, UnstructuredEvent
+from datetime import datetime
+
+from app.domain.models import Ambiguity, ProposedEvent
 
 
-def parse_event(unstructured: UnstructuredEvent) -> StructuredEvent:
-    """Parse free-text into a StructuredEvent.
+def parse_unstructured_event(
+    text: str, now: datetime
+) -> tuple[ProposedEvent, list[Ambiguity]]:
+    """Parse free-text into a ProposedEvent with any detected ambiguities.
 
-    Uses ``dateparser`` to extract dates and heuristics for title/location.
+    Uses ``now`` as a reference point for resolving relative dates
+    (e.g. "tomorrow", "next Friday").
+
     Currently a placeholder that will be fleshed out.
     """
-    raise NotImplementedError("parse_event is not yet implemented")
+    raise NotImplementedError("parse_unstructured_event is not yet implemented")

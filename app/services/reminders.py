@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.domain.models import Reminder, StructuredEvent
+from app.domain.models import Event, ReminderScheduleItem
 
 
-def create_default_reminders(event: StructuredEvent) -> list[Reminder]:
+def create_default_reminders(event: Event) -> list[ReminderScheduleItem]:
     """Generate default reminders for an event (e.g. 15 min before).
 
     Currently a placeholder.
@@ -16,9 +16,9 @@ def create_default_reminders(event: StructuredEvent) -> list[Reminder]:
 
 
 def fire_due_reminders(
-    reminders: list[Reminder],
+    reminders: list[ReminderScheduleItem],
     now: datetime,
-) -> list[Reminder]:
+) -> list[ReminderScheduleItem]:
     """Return reminders that should fire at the given *now* time.
 
     Currently a placeholder.
