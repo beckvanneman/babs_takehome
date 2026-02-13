@@ -98,8 +98,7 @@ tests/
 2. **Implement conflict detection** — compare time ranges with existing events and publish `ConflictDetected` domain events.
 3. **Implement reminder logic** — generate default reminders on event creation; fire them when `/tick` advances past `remind_at`.
 4. **Wire domain event handlers** — subscribe handlers to the bus at startup so that creating an event automatically schedules reminders and checks conflicts.
-5. **Replace in-memory repos** with a real database (PostgreSQL + SQLAlchemy / SQLModel).
-6. **Replace `/tick`** with a real background scheduler (APScheduler, Celery, or `asyncio` tasks).
-7. **Add authentication & authorization** (OAuth 2 / API keys).
-8. **Add structured logging** and **observability** (OpenTelemetry).
-9. **Containerize** with Docker and add a CI pipeline.
+5. **Replace `/tick`** with a real background scheduler (APScheduler, Celery, or `asyncio` tasks).
+6. **Add authentication & authorization** (OAuth 2 / API keys).
+7. **Add structured logging** and **observability** (OpenTelemetry).
+8. **Containerize** with Docker and add a CI pipeline.
