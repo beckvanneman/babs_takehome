@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
-from app.domain.models import StructuredEvent
+from datetime import datetime
+
+from app.domain.models import Event
 
 
-def detect_conflicts(
-    new_event: StructuredEvent,
-    existing_events: list[StructuredEvent],
-) -> list[StructuredEvent]:
-    """Return any existing events that overlap with *new_event*.
+def find_conflicts(
+    new_start: datetime,
+    new_end: datetime,
+    existing_events: list[Event],
+) -> list[Event]:
+    """Return existing events that overlap with the given time range.
 
-    Currently a placeholder.
+    Overlap rule: conflict if new_start < existing.end_time AND existing.start_time < new_end.
+    Exact boundary touches (end == start) are NOT considered conflicts.
     """
-    raise NotImplementedError("detect_conflicts is not yet implemented")
+    return [
+        event
+        for event in existing_events
+        if new_start < event.end_time and event.start_time < new_end
+    ]
