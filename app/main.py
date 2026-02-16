@@ -9,7 +9,14 @@ from fastapi import FastAPI, HTTPException
 from app.domain.bus import EventBus
 from app.domain.events import EventCreated, ReminderSent
 from app.domain.handlers import HandlerRegistry
-from app.domain.models import ConfirmEventRequest, Event, ParseRequest, ParseResponse
+from app.domain.models import (
+    ConfirmEventRequest,
+    Event,
+    ParseRequest,
+    ParseResponse,
+    ParseResponseStatus,
+)
+from app.services.conflicts import find_conflicts
 from app.repos.memory import (
     EventRepository,
     ParseResponseRepository,
@@ -48,8 +55,22 @@ def parse_event(payload: ParseRequest) -> ParseResponse:
     """Accept free-text and return a proposed event with any ambiguities."""
     now = datetime.now(timezone.utc)
     proposed_event, ambiguities = _parse(payload.text, now)
+
+    # Check for conflicts against confirmed events and pending proposed events
+    conflicts: list[str] = []
+
+    existing_events = event_repo.list_all()
+    overlapping = find_conflicts(proposed_event.start_time, proposed_event.end_time, existing_events)
+    for ev in overlapping:
+        conflicts.append(f"{ev.title} ({ev.id})")
+
+    for pr in parse_response_repo.list_pending():
+        pe = pr.proposed_event
+        if proposed_event.start_time < pe.end_time and pe.start_time < proposed_event.end_time:
+            conflicts.append(f"{pe.title} (proposed: {pr.id})")
+
     parse_response = ParseResponse(
-        proposed_event=proposed_event, ambiguities=ambiguities
+        proposed_event=proposed_event, ambiguities=ambiguities, conflicts=conflicts
     )
     parse_response_repo.add(parse_response)
     return parse_response
@@ -67,7 +88,7 @@ def confirm_proposed_event(proposed_event_id: str, body: ConfirmEventRequest) ->
     pr = parse_response_repo.get(proposed_event_id)
     if pr is None:
         raise HTTPException(status_code=404, detail="Proposed event not found")
-    if pr.status != "pending":
+    if pr.status != ParseResponseStatus.PENDING:
         raise HTTPException(
             status_code=400,
             detail=f"Proposed event is already {pr.status}",
@@ -87,7 +108,7 @@ def confirm_proposed_event(proposed_event_id: str, body: ConfirmEventRequest) ->
         recurrence_end=proposed.begin_recurrence if recurrence_rule else None,
     )
     event_repo.add(event)
-    parse_response_repo.update_status(proposed_event_id, "confirmed")
+    parse_response_repo.update_status(proposed_event_id, ParseResponseStatus.CONFIRMED)
 
     # Publish to the event bus — triggers reminders, conflict detection, etc.
     event_bus.publish(EventCreated(event_id=event.id))
@@ -101,12 +122,12 @@ def reject_proposed_event(proposed_event_id: str) -> dict:
     pr = parse_response_repo.get(proposed_event_id)
     if pr is None:
         raise HTTPException(status_code=404, detail="Proposed event not found")
-    if pr.status != "pending":
+    if pr.status != ParseResponseStatus.PENDING:
         raise HTTPException(
             status_code=400,
             detail=f"Proposed event is already {pr.status}",
         )
-    parse_response_repo.update_status(proposed_event_id, "rejected")
+    parse_response_repo.update_status(proposed_event_id, ParseResponseStatus.REJECTED)
     return {"status": "rejected"}
 
 
