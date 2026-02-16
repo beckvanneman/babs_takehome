@@ -19,15 +19,23 @@ describing a calendar event, extract the following fields as JSON:
   "title": "<concise event title, without time or location details>",
   "start_time": "<raw time substring from the text, or null if none>",
   "end_time": "<raw end-time substring from the text, or null if none>",
-  "location": "<location name from the text, or null if none>"
+  "location": "<location name from the text, or null if none>",
+  "recurrence_description": "<raw recurrence substring, or null if not recurring>",
+  "recurrence_end_description": "<raw end-of-recurrence substring, or null if none>"
 }
 
 Rules:
 - For title, extract ONLY what the event is about (e.g. "Soccer practice", \
-"Dinner", "Team meeting"). Strip time and location phrases.
+"Dinner", "Team meeting"). Strip time, location, and recurrence phrases.
 - For start_time and end_time, extract the EXACT substring from the input \
 that describes the time. Do NOT interpret or reformat it.
 - For location, extract the place name if one is mentioned.
+- For recurrence_description, extract the EXACT substring that describes how \
+often the event repeats (e.g. "every Thursday", "every other week", "weekly"). \
+Return null if this is a one-time event.
+- For recurrence_end_description, extract the EXACT substring that describes \
+when the recurrence ends (e.g. "until June", "for the 2026 season", \
+"through the end of May"). Return null if no end is mentioned.
 - Return null for any field that is not present in the text.
 - Respond with ONLY the JSON object, no other text.
 """
@@ -88,11 +96,56 @@ def parse_unstructured_event(
     title = extracted.get("title") or text
     location = extracted.get("location") or None
 
+    # -- recurrence --------------------------------------------------------
+    recurrence_description = extracted.get("recurrence_description") or None
+    end_recurrence_description = extracted.get("recurrence_end_description") or None
+    begin_recurrence: datetime | None = None
+
+    if recurrence_description:
+        # Use the parsed start_time as the anchor for the first occurrence.
+        begin_recurrence = start_time
+
+        # If the description implies an interval (e.g. "every other"), the
+        # anchor date is ambiguous — it could be this week or next.
+        desc_lower = recurrence_description.lower()
+        has_interval = any(
+            phrase in desc_lower
+            for phrase in ("every other", "biweekly", "bi-weekly", "every 2")
+        )
+        if has_interval:
+            next_candidate = start_time + timedelta(weeks=1)
+            ambiguities.append(
+                Ambiguity(
+                    field="begin_recurrence",
+                    reason=(
+                        f'"{recurrence_description}" implies an interval but '
+                        "the starting week is not specified"
+                    ),
+                    options=[
+                        start_time.strftime("%A %B %d, %Y"),
+                        next_candidate.strftime("%A %B %d, %Y"),
+                    ],
+                )
+            )
+
+        # If there is recurrence but no end description, flag it.
+        if not end_recurrence_description:
+            ambiguities.append(
+                Ambiguity(
+                    field="end_recurrence_description",
+                    reason="Recurring event has no end date specified",
+                    options=["Add an end date", "Repeat indefinitely"],
+                )
+            )
+
     proposed = ProposedEvent(
         title=title,
         start_time=start_time,
         end_time=end_time,
         location=location,
         notes=text,
+        recurrence_description=recurrence_description,
+        begin_recurrence=begin_recurrence,
+        end_recurrence_description=end_recurrence_description,
     )
     return proposed, ambiguities
