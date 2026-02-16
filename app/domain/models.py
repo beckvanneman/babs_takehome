@@ -33,7 +33,8 @@ class Event(BaseModel):
     was_shared: bool = False
     reminders_scheduled: bool = False
     reminder_last_sent_at: datetime | None = None
-    parent_id: str | None = None
+    parent_event_id: str | None = None
+    proposed_event_id: str | None = None
     recurrence_rule: str | None = None
     recurrence_end: datetime | None = None
 
@@ -104,23 +105,11 @@ class Ambiguity(BaseModel):
 
 
 class ParseResponse(BaseModel):
+    id: str = Field(default_factory=_new_id)
+    status: str = "pending"
     proposed_event: ProposedEvent
     ambiguities: list[Ambiguity] = Field(default_factory=list)
 
 
-class CreateEventRequest(BaseModel):
+class ConfirmEventRequest(BaseModel):
     proposed_event: ProposedEvent
-    reminder_offsets_minutes: list[int] | None = None
-
-    @model_validator(mode="after")
-    def _offsets_positive(self) -> CreateEventRequest:
-        if self.reminder_offsets_minutes is not None:
-            for offset in self.reminder_offsets_minutes:
-                if offset <= 0:
-                    raise ValueError("reminder offsets must be positive integers")
-        return self
-
-
-class CreateEventResponse(BaseModel):
-    event: Event
-    conflicts: list[Event] = Field(default_factory=list)

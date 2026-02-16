@@ -101,7 +101,7 @@ def test_expand_weekly_four_weeks():
     for child, expected_start in zip(children, expected_dates):
         assert child.start_time == expected_start
         assert child.end_time == expected_start + timedelta(hours=1, minutes=30)
-        assert child.parent_id == parent.id
+        assert child.parent_event_id == parent.id
         assert child.recurrence_rule is None
         assert child.title == "Soccer practice"
         assert child.location == parent.location
