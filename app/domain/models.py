@@ -33,6 +33,7 @@ class Event(BaseModel):
     was_shared: bool = False
     reminders_scheduled: bool = False
     reminder_last_sent_at: datetime | None = None
+    last_reminder_sent_id: str | None = None
     parent_event_id: str | None = None
     proposed_event_id: str | None = None
     recurrence_rule: str | None = None

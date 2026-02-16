@@ -7,11 +7,15 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 
 from app.domain.bus import EventBus
+from app.domain.events import EventCreated, ReminderSent
+from app.domain.handlers import HandlerRegistry
 from app.domain.models import ConfirmEventRequest, Event, ParseRequest, ParseResponse
 from app.repos.memory import (
     EventRepository,
     ParseResponseRepository,
+    ReminderPreferenceRepository,
     ReminderScheduleRepository,
+    TimelineRepository,
 )
 from app.services.parser import parse_unstructured_event as _parse
 from app.services.recurrence import compile_rrule
@@ -22,7 +26,18 @@ app = FastAPI(title="Event Lifecycle Service")
 event_bus = EventBus()
 event_repo = EventRepository()
 parse_response_repo = ParseResponseRepository()
-reminder_repo = ReminderScheduleRepository()
+timeline_repo = TimelineRepository()
+reminder_pref_repo = ReminderPreferenceRepository()
+reminder_schedule_repo = ReminderScheduleRepository()
+
+handler_registry = HandlerRegistry(
+    bus=event_bus,
+    event_repo=event_repo,
+    timeline_repo=timeline_repo,
+    reminder_pref_repo=reminder_pref_repo,
+    reminder_schedule_repo=reminder_schedule_repo,
+    parse_response_repo=parse_response_repo,
+)
 
 
 # ── Routes ────────────────────────────────────────────────────────────
@@ -73,6 +88,10 @@ def confirm_proposed_event(proposed_event_id: str, body: ConfirmEventRequest) ->
     )
     event_repo.add(event)
     parse_response_repo.update_status(proposed_event_id, "confirmed")
+
+    # Publish to the event bus — triggers reminders, conflict detection, etc.
+    event_bus.publish(EventCreated(event_id=event.id))
+
     return event
 
 
@@ -113,6 +132,18 @@ def tick(now: datetime | None = None) -> dict:
     Pass *now* as a query/body param to control the simulated clock.
     Defaults to ``datetime.now(timezone.utc)`` when omitted.
     """
-    # TODO: wire up reminder service
     current_time = now or datetime.now(timezone.utc)
-    return {"time": current_time.isoformat(), "reminders_fired": []}
+    due_items = reminder_schedule_repo.list_due(current_time)
+
+    fired: list[str] = []
+    for item in due_items:
+        event_bus.publish(
+            ReminderSent(
+                event_id=item.event_id,
+                schedule_item_id=item.id,
+                sent_at=current_time,
+            )
+        )
+        fired.append(item.id)
+
+    return {"time": current_time.isoformat(), "reminders_fired": fired}
