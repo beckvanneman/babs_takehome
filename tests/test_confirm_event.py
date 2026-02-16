@@ -8,7 +8,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.domain.models import Ambiguity, ParseResponse, ProposedEvent
-from app.main import app, event_repo, parse_response_repo
+from app.main import (
+    app,
+    event_repo,
+    parse_response_repo,
+    reminder_pref_repo,
+    reminder_schedule_repo,
+    timeline_repo,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -16,9 +23,15 @@ def _clear_repos():
     """Reset in-memory repos before each test."""
     event_repo._store.clear()
     parse_response_repo._store.clear()
+    timeline_repo._entries.clear()
+    reminder_pref_repo._prefs.clear()
+    reminder_schedule_repo._items.clear()
     yield
     event_repo._store.clear()
     parse_response_repo._store.clear()
+    timeline_repo._entries.clear()
+    reminder_pref_repo._prefs.clear()
+    reminder_schedule_repo._items.clear()
 
 
 @pytest.fixture()

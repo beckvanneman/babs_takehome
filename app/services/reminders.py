@@ -2,25 +2,36 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from app.domain.models import Reminder, StructuredEvent
+from app.domain.models import ReminderPreference, ReminderScheduleItem
+from app.repos.memory import ReminderPreferenceRepository, ReminderScheduleRepository
 
 
-def create_default_reminders(event: StructuredEvent) -> list[Reminder]:
-    """Generate default reminders for an event (e.g. 15 min before).
+def schedule_reminders(
+    event_id: str,
+    start_time: datetime,
+    offsets_minutes: list[int],
+    pref_repo: ReminderPreferenceRepository,
+    schedule_repo: ReminderScheduleRepository,
+) -> list[ReminderScheduleItem]:
+    """Create reminder preferences and schedule items for the given offsets.
 
-    Currently a placeholder.
+    Returns the list of created ReminderScheduleItem instances.
     """
-    raise NotImplementedError("create_default_reminders is not yet implemented")
+    items: list[ReminderScheduleItem] = []
+    for offset in offsets_minutes:
+        pref = ReminderPreference(event_id=event_id, offset_minutes=offset)
+        pref_repo.add(pref)
 
+        item = ReminderScheduleItem(
+            event_id=event_id,
+            preference_id=pref.id,
+            trigger_time=start_time - timedelta(minutes=offset),
+            channel=pref.channel,
+            target=pref.target,
+        )
+        schedule_repo.add(item)
+        items.append(item)
 
-def fire_due_reminders(
-    reminders: list[Reminder],
-    now: datetime,
-) -> list[Reminder]:
-    """Return reminders that should fire at the given *now* time.
-
-    Currently a placeholder.
-    """
-    raise NotImplementedError("fire_due_reminders is not yet implemented")
+    return items
