@@ -60,9 +60,15 @@ class ParseResponseRepository:
         return self._store.get(parse_response_id)
 
     def list_pending(self) -> list[ParseResponse]:
-        return [pr for pr in self._store.values() if pr.status == ParseResponseStatus.PENDING]
+        return [
+            pr
+            for pr in self._store.values()
+            if pr.status == ParseResponseStatus.PENDING
+        ]
 
-    def update_status(self, parse_response_id: str, status: ParseResponseStatus) -> None:
+    def update_status(
+        self, parse_response_id: str, status: ParseResponseStatus
+    ) -> None:
         pr = self._store.get(parse_response_id)
         if pr is not None:
             pr.status = status

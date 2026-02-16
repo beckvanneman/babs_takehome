@@ -60,13 +60,18 @@ def parse_event(payload: ParseRequest) -> ParseResponse:
     conflicts: list[str] = []
 
     existing_events = event_repo.list_all()
-    overlapping = find_conflicts(proposed_event.start_time, proposed_event.end_time, existing_events)
+    overlapping = find_conflicts(
+        proposed_event.start_time, proposed_event.end_time, existing_events
+    )
     for ev in overlapping:
         conflicts.append(f"{ev.title} ({ev.id})")
 
     for pr in parse_response_repo.list_pending():
         pe = pr.proposed_event
-        if proposed_event.start_time < pe.end_time and pe.start_time < proposed_event.end_time:
+        if (
+            proposed_event.start_time < pe.end_time
+            and pe.start_time < proposed_event.end_time
+        ):
             conflicts.append(f"{pe.title} (proposed: {pr.id})")
 
     parse_response = ParseResponse(
