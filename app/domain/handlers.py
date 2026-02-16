@@ -188,9 +188,7 @@ class HandlerRegistry:
 
         stored.status = EventStatus.CONFIRMED
         self.timeline_repo.add(
-            TimelineEntry(
-                event_id=event.event_id, type=TimelineEntryType.CONFIRMED
-            )
+            TimelineEntry(event_id=event.event_id, type=TimelineEntryType.CONFIRMED)
         )
 
     def on_reminder_sent(self, event: ReminderSent) -> None:

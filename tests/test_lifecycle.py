@@ -167,7 +167,9 @@ def test_conflict_unconfirms_and_requeues(env):
 
     # A conflict timeline entry should exist
     entries = env.timeline_repo.list_for_event(new_event.id)
-    conflict_entries = [e for e in entries if e.type == TimelineEntryType.CONFLICT_DETECTED]
+    conflict_entries = [
+        e for e in entries if e.type == TimelineEntryType.CONFLICT_DETECTED
+    ]
     assert len(conflict_entries) == 1
     assert existing.id in conflict_entries[0].payload["conflicting_event_ids"]
 
@@ -367,7 +369,8 @@ def test_api_event_lifecycle_confirm_share_remind(api_client: TestClient):
     assert share_resp.json()["shared_with"] == ["alice@example.com", "bob@example.com"]
 
     first_trigger = min(
-        item.trigger_time for item in app_reminder_schedule_repo.list_for_event(event_id)
+        item.trigger_time
+        for item in app_reminder_schedule_repo.list_for_event(event_id)
     )
     tick_resp = api_client.post("/tick", params={"now": first_trigger.isoformat()})
     assert tick_resp.status_code == 200
