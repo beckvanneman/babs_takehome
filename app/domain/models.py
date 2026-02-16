@@ -33,6 +33,9 @@ class Event(BaseModel):
     was_shared: bool = False
     reminders_scheduled: bool = False
     reminder_last_sent_at: datetime | None = None
+    parent_id: str | None = None
+    recurrence_rule: str | None = None
+    recurrence_end: datetime | None = None
 
     @model_validator(mode="after")
     def _end_after_start(self) -> Event:
@@ -83,6 +86,9 @@ class ProposedEvent(BaseModel):
     end_time: datetime
     location: str | None = None
     notes: str | None = None
+    recurrence_description: str | None = None
+    begin_recurrence: datetime | None = None
+    end_recurrence_description: str | None = None
 
     @model_validator(mode="after")
     def _end_after_start(self) -> ProposedEvent:

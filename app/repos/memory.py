@@ -27,6 +27,23 @@ class EventRepository:
     def list_all(self) -> list[Event]:
         return list(self._store.values())
 
+    def list_children(self, parent_id: str) -> list[Event]:
+        """Return all child events belonging to a recurring series."""
+        return [e for e in self._store.values() if e.parent_id == parent_id]
+
+    def delete(self, event_id: str) -> None:
+        self._store.pop(event_id, None)
+
+    def delete_series(self, parent_id: str) -> None:
+        """Delete a parent event and all its children (cascade)."""
+        to_remove = [
+            eid
+            for eid, e in self._store.items()
+            if eid == parent_id or e.parent_id == parent_id
+        ]
+        for eid in to_remove:
+            del self._store[eid]
+
 
 class TimelineRepository:
     """List-backed store for TimelineEntry instances."""
@@ -88,15 +105,30 @@ class ReminderScheduleRepository:
 def _seed_events(repo: EventRepository) -> None:
     now = datetime.now(timezone.utc)
 
-    repo.add(
-        Event(
-            title="Soccer practice",
-            start_time=now + timedelta(hours=2),
-            end_time=now + timedelta(hours=3),
-            location="City Park Field 4",
-            is_confirmed=True,
-        )
+    # Recurring series: Soccer practice every week for 3 weeks
+    soccer_parent = Event(
+        title="Soccer practice",
+        start_time=now + timedelta(hours=2),
+        end_time=now + timedelta(hours=3),
+        location="City Park Field 4",
+        is_confirmed=True,
+        recurrence_rule="FREQ=WEEKLY;BYDAY=TH",
+        recurrence_end=now + timedelta(weeks=3),
     )
+    repo.add(soccer_parent)
+    # Child occurrences
+    for week in (1, 2, 3):
+        repo.add(
+            Event(
+                title="Soccer practice",
+                start_time=now + timedelta(hours=2, weeks=week),
+                end_time=now + timedelta(hours=3, weeks=week),
+                location="City Park Field 4",
+                is_confirmed=True,
+                parent_id=soccer_parent.id,
+            )
+        )
+
     repo.add(
         Event(
             title="Piano lesson",
