@@ -14,27 +14,99 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Run the server
+# 3. Set your OpenAI API key
+export OPENAI_API_KEY="sk-..."
+
+# 4. Run the server
 uvicorn app.main:app --reload
 
-# 4. Run tests
+# 5. Run tests
 pytest
 ```
+
+The `POST /parse` endpoint uses **OpenAI's `gpt-4o-mini`** model to extract structured event fields from free-form text. You must have a valid [OpenAI API key](https://platform.openai.com/api-keys) set in the `OPENAI_API_KEY` environment variable before starting the server. Without it, parse requests will fail.
 
 The server starts at **http://127.0.0.1:8000**.
 Interactive API docs are available at **http://127.0.0.1:8000/docs**.
 
+## How it works
+
+1. **Parse** — Send unstructured text to `POST /parse`. The server extracts a proposed event, flags any ambiguities (e.g. "7pm — AM or PM?", missing end time), checks for scheduling conflicts against existing events, and returns a `ParseResponse` with status `pending`.
+
+2. **Review** — Call `GET /proposed-events` to see all pending proposed events. Each entry includes the parsed event fields, a list of ambiguities that need resolution, and any detected conflicts with confirmed or other pending events.
+
+3. **Confirm or reject** — For each proposed event the client decides:
+   - `POST /proposed-events/{id}/confirm` — send back the (possibly ambiguity-resolved) `ProposedEvent`. The server creates a confirmed `Event`, marks the `ParseResponse` as `confirmed`, and removes it from the pending queue.
+   - `POST /proposed-events/{id}/reject` — marks the `ParseResponse` as `rejected`. No `Event` is created, but the record is kept so a user can revisit old proposals later.
+
+4. **Browse confirmed events** — `GET /events` returns all confirmed events. `GET /events/{id}` returns a single event.
+
+5. **Reminders** — `POST /tick` advances the simulated clock and fires any reminders that are due.
+
 ## API endpoints
 
-### `POST /parse` — parse unstructured text into a structured event
+### `POST /parse` — parse unstructured text into a proposed event
+
+Send a blob of free-form text. The server parses it into a `ProposedEvent`, detects ambiguities and conflicts, stores the result as a `ParseResponse` with status `pending`, and returns it.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/parse \
   -H "Content-Type: application/json" \
-  -d '{"raw_text": "Dinner with Alice tomorrow at 7pm at Olive Garden"}'
+  -d '{"text": "Dinner with Alice tomorrow at 7pm at Olive Garden"}'
 ```
 
-### `GET /events` — list all structured events
+**Response** (abbreviated):
+```json
+{
+  "id": "abc-123",
+  "status": "pending",
+  "proposed_event": {
+    "title": "Dinner with Alice",
+    "start_time": "2025-06-15T19:00:00Z",
+    "end_time": "2025-06-15T20:00:00Z",
+    "location": "Olive Garden"
+  },
+  "ambiguities": [
+    { "field": "end_time", "reason": "No end time specified; defaulted to 1 hour", "options": [] }
+  ],
+  "conflicts": []
+}
+```
+
+### `GET /proposed-events` — list pending proposed events
+
+Returns all `ParseResponse` objects that are still `pending`. Use this to show the user what needs to be confirmed or rejected.
+
+```bash
+curl http://127.0.0.1:8000/proposed-events
+```
+
+### `POST /proposed-events/{id}/confirm` — confirm a proposed event
+
+Send the final `ProposedEvent` (with any ambiguities resolved by the user) in the request body. The server creates a confirmed `Event`, marks the `ParseResponse` as `confirmed`, and publishes an `EventCreated` domain event (which triggers reminders, conflict checks, etc.).
+
+```bash
+curl -X POST http://127.0.0.1:8000/proposed-events/abc-123/confirm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "proposed_event": {
+      "title": "Dinner with Alice",
+      "start_time": "2025-06-15T19:00:00Z",
+      "end_time": "2025-06-15T20:30:00Z",
+      "location": "Olive Garden"
+    }
+  }'
+```
+
+### `POST /proposed-events/{id}/reject` — reject a proposed event
+
+Marks the `ParseResponse` as `rejected`. No `Event` is created. The rejected record is persisted so a user can revisit it later.
+
+```bash
+curl -X POST http://127.0.0.1:8000/proposed-events/abc-123/reject
+```
+
+### `GET /events` — list all confirmed events
 
 ```bash
 curl http://127.0.0.1:8000/events
@@ -82,23 +154,22 @@ tests/
 
 | Component | Status |
 |---|---|
-| Domain models (`StructuredEvent`, `Reminder`, etc.) | **Functional** — fully defined Pydantic v2 models |
+| Domain models (`Event`, `ProposedEvent`, `ParseResponse`, etc.) | **Functional** — fully defined Pydantic v2 models |
 | Event bus (`EventBus`) | **Functional** — synchronous pub/sub works end-to-end |
-| In-memory repositories | **Functional** — dict/list-backed `save`, `get`, `list_all` |
+| In-memory repositories | **Functional** — dict/list-backed stores for events, parse responses, reminders |
+| `POST /parse` | **Functional** — parses text, detects ambiguities & conflicts, stores as pending |
+| `GET /proposed-events` | **Functional** — returns pending parse responses |
+| `POST /proposed-events/{id}/confirm` | **Functional** — creates confirmed event, publishes domain event |
+| `POST /proposed-events/{id}/reject` | **Functional** — marks parse response as rejected |
 | `GET /events`, `GET /events/{id}` | **Functional** — reads from in-memory repo |
-| `POST /tick` | **Functional** (stub) — returns current time, fires no reminders yet |
-| `POST /parse` | **Placeholder** — returns 501; parser service raises `NotImplementedError` |
-| Conflict detection | **Placeholder** — raises `NotImplementedError` |
-| Reminder creation & firing | **Placeholder** — raises `NotImplementedError` |
-| Domain event handlers | **Placeholder** — `on_event_created` is a no-op |
+| Conflict detection | **Functional** — checks overlaps against confirmed and pending events |
+| Domain event handlers | **Functional** — handler registry wired at startup |
+| `POST /tick` | **Functional** — fires due reminders via the event bus |
 
 ## Next steps for production
 
-1. **Implement the parser service** — use `dateparser` to extract dates, regex/heuristics for title and location, and persist via the event repo.
-2. **Implement conflict detection** — compare time ranges with existing events and publish `ConflictDetected` domain events.
-3. **Implement reminder logic** — generate default reminders on event creation; fire them when `/tick` advances past `remind_at`.
-4. **Wire domain event handlers** — subscribe handlers to the bus at startup so that creating an event automatically schedules reminders and checks conflicts.
-5. **Replace `/tick`** with a real background scheduler (APScheduler, Celery, or `asyncio` tasks).
-6. **Add authentication & authorization** (OAuth 2 / API keys).
-7. **Add structured logging** and **observability** (OpenTelemetry).
-8. **Containerize** with Docker and add a CI pipeline.
+1. **Replace `/tick`** with a real background scheduler (APScheduler, Celery, or `asyncio` tasks).
+2. **Add status filtering to `GET /proposed-events`** — allow querying by `pending`, `confirmed`, `rejected`.
+3. **Add authentication & authorization** (OAuth 2 / API keys).
+4. **Add structured logging** and **observability** (OpenTelemetry).
+5. **Containerize** with Docker and add a CD pipeline.

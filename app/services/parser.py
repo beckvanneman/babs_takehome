@@ -7,7 +7,6 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import dateparser
-from openai import OpenAI
 
 from app.domain.models import Ambiguity, ProposedEvent
 
@@ -43,6 +42,8 @@ when the recurrence ends (e.g. "until June", "for the 2026 season", \
 
 def _extract_with_llm(text: str) -> dict:
     """Call OpenAI to extract structured fields from free text."""
+    from openai import OpenAI
+
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     response = client.chat.completions.create(
         model="gpt-4o-mini",

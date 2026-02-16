@@ -4,8 +4,15 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
+
+
+class ParseResponseStatus(StrEnum):
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    REJECTED = "rejected"
 
 
 def _utcnow() -> datetime:
@@ -107,9 +114,10 @@ class Ambiguity(BaseModel):
 
 class ParseResponse(BaseModel):
     id: str = Field(default_factory=_new_id)
-    status: str = "pending"
+    status: ParseResponseStatus = ParseResponseStatus.PENDING
     proposed_event: ProposedEvent
     ambiguities: list[Ambiguity] = Field(default_factory=list)
+    conflicts: list[str] = Field(default_factory=list)
 
 
 class ConfirmEventRequest(BaseModel):
