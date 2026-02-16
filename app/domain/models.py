@@ -15,6 +15,24 @@ class ParseResponseStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class EventStatus(StrEnum):
+    DRAFT = "draft"
+    CONFIRMED = "confirmed"
+    CONFLICTED = "conflicted"
+    CANCELLED = "cancelled"
+    REMINDED = "reminded"
+
+
+class TimelineEntryType(StrEnum):
+    CREATED = "created"
+    REMINDER_SCHEDULED = "reminder_scheduled"
+    CONFLICT_DETECTED = "conflict_detected"
+    SHARED = "shared"
+    CONFIRMED = "confirmed"
+    REMINDER_SENT = "reminder_sent"
+    REJECTED = "rejected"
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -36,7 +54,7 @@ class Event(BaseModel):
     location: str | None = None
     notes: str | None = None
     created_at: datetime = Field(default_factory=_utcnow)
-    is_confirmed: bool = False
+    status: EventStatus = EventStatus.DRAFT
     was_shared: bool = False
     reminders_scheduled: bool = False
     reminder_last_sent_at: datetime | None = None
@@ -76,7 +94,7 @@ class TimelineEntry(BaseModel):
     id: str = Field(default_factory=_new_id)
     event_id: str
     timestamp: datetime = Field(default_factory=_utcnow)
-    type: str
+    type: TimelineEntryType
     payload: dict = Field(default_factory=dict)
 
 
@@ -118,7 +136,12 @@ class ParseResponse(BaseModel):
     proposed_event: ProposedEvent
     ambiguities: list[Ambiguity] = Field(default_factory=list)
     conflicts: list[str] = Field(default_factory=list)
+    event_id: str | None = None
 
 
 class ConfirmEventRequest(BaseModel):
     proposed_event: ProposedEvent
+
+
+class ShareEventRequest(BaseModel):
+    targets: list[str]

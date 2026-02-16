@@ -122,7 +122,7 @@ def expand_recurrence(parent: Event) -> list[Event]:
                 location=parent.location,
                 notes=parent.notes,
                 parent_event_id=parent.id,
-                is_confirmed=parent.is_confirmed,
+                status=parent.status,
             )
         )
 

@@ -157,7 +157,7 @@ def test_confirm_one_off_creates_event(client: TestClient):
 
     assert event["title"] == "Doctor's appointment"
     assert event["location"] == "Downtown Clinic"
-    assert event["is_confirmed"] is True
+    assert event["status"] == "confirmed"
     assert event["recurrence_rule"] is None
     assert event["proposed_event_id"] == pr.id
 
@@ -243,7 +243,7 @@ def test_confirm_with_resolved_ambiguities(client: TestClient):
 
     assert event["recurrence_rule"] is not None
     assert "INTERVAL=2" in event["recurrence_rule"]
-    assert event["is_confirmed"] is True
+    assert event["status"] == "confirmed"
 
 
 # ---------------------------------------------------------------------------
