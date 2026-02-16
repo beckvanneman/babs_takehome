@@ -82,7 +82,9 @@ def _ambiguous_proposed() -> tuple[ProposedEvent, list[Ambiguity]]:
     return proposed, ambiguities
 
 
-def _seed_parse_response(proposed: ProposedEvent, ambiguities: list[Ambiguity] | None = None) -> ParseResponse:
+def _seed_parse_response(
+    proposed: ProposedEvent, ambiguities: list[Ambiguity] | None = None
+) -> ParseResponse:
     """Create a ParseResponse, store it in the repo, and return it."""
     pr = ParseResponse(
         proposed_event=proposed,

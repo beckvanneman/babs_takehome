@@ -8,7 +8,11 @@ from fastapi import FastAPI, HTTPException
 
 from app.domain.bus import EventBus
 from app.domain.models import ConfirmEventRequest, Event, ParseRequest, ParseResponse
-from app.repos.memory import EventRepository, ParseResponseRepository, ReminderScheduleRepository
+from app.repos.memory import (
+    EventRepository,
+    ParseResponseRepository,
+    ReminderScheduleRepository,
+)
 from app.services.parser import parse_unstructured_event as _parse
 from app.services.recurrence import compile_rrule
 
@@ -29,7 +33,9 @@ def parse_event(payload: ParseRequest) -> ParseResponse:
     """Accept free-text and return a proposed event with any ambiguities."""
     now = datetime.now(timezone.utc)
     proposed_event, ambiguities = _parse(payload.text, now)
-    parse_response = ParseResponse(proposed_event=proposed_event, ambiguities=ambiguities)
+    parse_response = ParseResponse(
+        proposed_event=proposed_event, ambiguities=ambiguities
+    )
     parse_response_repo.add(parse_response)
     return parse_response
 
@@ -41,9 +47,7 @@ def list_proposed_events() -> list[ParseResponse]:
 
 
 @app.post("/proposed-events/{proposed_event_id}/confirm", response_model=Event)
-def confirm_proposed_event(
-    proposed_event_id: str, body: ConfirmEventRequest
-) -> Event:
+def confirm_proposed_event(proposed_event_id: str, body: ConfirmEventRequest) -> Event:
     """Confirm a proposed event and create a stored Event."""
     pr = parse_response_repo.get(proposed_event_id)
     if pr is None:
