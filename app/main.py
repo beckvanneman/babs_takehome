@@ -7,14 +7,18 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 
 from app.domain.bus import EventBus
-from app.domain.events import EventCreated, ReminderSent
+from app.domain.events import EventCreated, EventShared, ReminderSent
 from app.domain.handlers import HandlerRegistry
 from app.domain.models import (
     ConfirmEventRequest,
     Event,
+    EventStatus,
     ParseRequest,
     ParseResponse,
     ParseResponseStatus,
+    ShareEventRequest,
+    TimelineEntry,
+    TimelineEntryType,
 )
 from app.services.conflicts import find_conflicts
 from app.repos.memory import (
@@ -107,7 +111,7 @@ def confirm_proposed_event(proposed_event_id: str, body: ConfirmEventRequest) ->
         end_time=proposed.end_time,
         location=proposed.location,
         notes=proposed.notes,
-        is_confirmed=True,
+        status=EventStatus.CONFIRMED,
         proposed_event_id=pr.id,
         recurrence_rule=recurrence_rule,
         recurrence_end=proposed.begin_recurrence if recurrence_rule else None,
@@ -133,6 +137,13 @@ def reject_proposed_event(proposed_event_id: str) -> dict:
             detail=f"Proposed event is already {pr.status}",
         )
     parse_response_repo.update_status(proposed_event_id, ParseResponseStatus.REJECTED)
+
+    # Write a rejected timeline entry if this was a conflict re-queue with a linked event
+    if pr.event_id:
+        timeline_repo.add(
+            TimelineEntry(event_id=pr.event_id, type=TimelineEntryType.REJECTED)
+        )
+
     return {"status": "rejected"}
 
 
@@ -149,6 +160,34 @@ def get_event(event_id: str) -> Event:
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     return event
+
+
+@app.get("/events/{event_id}/timeline", response_model=list[TimelineEntry])
+def get_event_timeline(event_id: str) -> list[TimelineEntry]:
+    """Return the timeline for an event."""
+    event = event_repo.get(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return timeline_repo.list_for_event(event_id)
+
+
+@app.post("/events/{event_id}/share")
+def share_event(event_id: str, body: ShareEventRequest) -> dict:
+    """Share an event with a list of targets and return a sharable payload."""
+    event = event_repo.get(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    event_bus.publish(EventShared(event_id=event_id, targets=body.targets))
+
+    return {
+        "event_id": event.id,
+        "title": event.title,
+        "start_time": event.start_time.isoformat(),
+        "end_time": event.end_time.isoformat(),
+        "location": event.location,
+        "shared_with": body.targets,
+    }
 
 
 @app.post("/tick")

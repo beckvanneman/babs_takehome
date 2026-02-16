@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.domain.models import (
     Event,
+    EventStatus,
     ParseResponse,
     ParseResponseStatus,
     ReminderPreference,
@@ -140,7 +141,7 @@ def _seed_events(repo: EventRepository) -> None:
         start_time=now + timedelta(hours=2),
         end_time=now + timedelta(hours=3),
         location="City Park Field 4",
-        is_confirmed=True,
+        status=EventStatus.CONFIRMED,
         recurrence_rule="FREQ=WEEKLY;BYDAY=TH",
         recurrence_end=now + timedelta(weeks=3),
     )
@@ -153,7 +154,7 @@ def _seed_events(repo: EventRepository) -> None:
                 start_time=now + timedelta(hours=2, weeks=week),
                 end_time=now + timedelta(hours=3, weeks=week),
                 location="City Park Field 4",
-                is_confirmed=True,
+                status=EventStatus.CONFIRMED,
                 parent_event_id=soccer_practice.id,
             )
         )
@@ -164,7 +165,7 @@ def _seed_events(repo: EventRepository) -> None:
             start_time=now + timedelta(hours=4),
             end_time=now + timedelta(hours=5),
             location="Music Academy",
-            is_confirmed=True,
+            status=EventStatus.CONFIRMED,
         )
     )
     repo.add(
@@ -173,7 +174,7 @@ def _seed_events(repo: EventRepository) -> None:
             start_time=now + timedelta(days=1, hours=1),
             end_time=now + timedelta(days=1, hours=2),
             location="Downtown Dental",
-            is_confirmed=False,
+            status=EventStatus.DRAFT,
         )
     )
 

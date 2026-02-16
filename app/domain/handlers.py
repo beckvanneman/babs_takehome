@@ -2,23 +2,22 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from app.domain.bus import EventBus
 from app.domain.events import (
     ConflictDetected,
     EventConfirmed,
     EventCreated,
     EventShared,
+    ReminderScheduled,
     ReminderSent,
 )
 from app.domain.models import (
     Ambiguity,
+    EventStatus,
     ParseResponse,
     ProposedEvent,
-    ReminderPreference,
-    ReminderScheduleItem,
     TimelineEntry,
+    TimelineEntryType,
 )
 from app.repos.memory import (
     EventRepository,
@@ -28,8 +27,7 @@ from app.repos.memory import (
     TimelineRepository,
 )
 from app.services.conflicts import find_conflicts
-
-_DEFAULT_OFFSETS = [720, 30]  # 12 hours, 30 minutes
+from app.services.reminders import DEFAULT_OFFSETS, schedule_reminders
 
 
 class HandlerRegistry:
@@ -69,27 +67,20 @@ class HandlerRegistry:
             return
 
         # 1. Timeline: created
-        self.timeline_repo.add(TimelineEntry(event_id=event.event_id, type="created"))
+        self.timeline_repo.add(
+            TimelineEntry(event_id=event.event_id, type=TimelineEntryType.CREATED)
+        )
 
         # 2. Schedule reminders
-        offsets = event.reminder_offsets_minutes or _DEFAULT_OFFSETS
-        schedule_ids: list[str] = []
-        for offset in offsets:
-            pref = ReminderPreference(
-                event_id=event.event_id,
-                offset_minutes=offset,
-            )
-            self.reminder_pref_repo.add(pref)
-
-            item = ReminderScheduleItem(
-                event_id=event.event_id,
-                preference_id=pref.id,
-                trigger_time=stored.start_time - timedelta(minutes=offset),
-                channel=pref.channel,
-                target=pref.target,
-            )
-            self.reminder_schedule_repo.add(item)
-            schedule_ids.append(item.id)
+        offsets = event.reminder_offsets_minutes or DEFAULT_OFFSETS
+        items = schedule_reminders(
+            event_id=event.event_id,
+            start_time=stored.start_time,
+            offsets_minutes=offsets,
+            pref_repo=self.reminder_pref_repo,
+            schedule_repo=self.reminder_schedule_repo,
+        )
+        schedule_ids = [item.id for item in items]
 
         # 3. Mark reminders as scheduled
         stored.reminders_scheduled = True
@@ -98,16 +89,24 @@ class HandlerRegistry:
         self.timeline_repo.add(
             TimelineEntry(
                 event_id=event.event_id,
-                type="reminder_scheduled",
+                type=TimelineEntryType.REMINDER_SCHEDULED,
                 payload={"offsets": offsets, "schedule_item_ids": schedule_ids},
             )
         )
 
-        # 5. Check conflicts (skip if this event was already flagged for conflicts —
+        # 5. Publish ReminderScheduled domain event
+        self.bus.publish(
+            ReminderScheduled(
+                event_id=event.event_id,
+                schedule_item_ids=schedule_ids,
+            )
+        )
+
+        # 6. Check conflicts (skip if this event was already flagged for conflicts —
         #    avoids infinite re-queue loop on re-confirm)
         existing_timeline = self.timeline_repo.list_for_event(event.event_id)
         already_had_conflict = any(
-            e.type == "conflict_detected" for e in existing_timeline
+            e.type == TimelineEntryType.CONFLICT_DETECTED for e in existing_timeline
         )
 
         if not already_had_conflict:
@@ -130,13 +129,13 @@ class HandlerRegistry:
         self.timeline_repo.add(
             TimelineEntry(
                 event_id=event.event_id,
-                type="conflict_detected",
+                type=TimelineEntryType.CONFLICT_DETECTED,
                 payload={"conflicting_event_ids": event.conflicting_event_ids},
             )
         )
 
-        # 2. Un-confirm
-        stored.is_confirmed = False
+        # 2. Set status to conflicted
+        stored.status = EventStatus.CONFLICTED
 
         # 3. Build conflict descriptions
         conflict_titles = []
@@ -164,6 +163,7 @@ class HandlerRegistry:
                     options=["Keep both", "Cancel this event"],
                 )
             ],
+            event_id=event.event_id,
         )
         self.parse_response_repo.add(pr)
 
@@ -176,7 +176,7 @@ class HandlerRegistry:
         self.timeline_repo.add(
             TimelineEntry(
                 event_id=event.event_id,
-                type="shared",
+                type=TimelineEntryType.SHARED,
                 payload={"targets": event.targets},
             )
         )
@@ -186,8 +186,12 @@ class HandlerRegistry:
         if stored is None:
             return
 
-        stored.is_confirmed = True
-        self.timeline_repo.add(TimelineEntry(event_id=event.event_id, type="confirmed"))
+        stored.status = EventStatus.CONFIRMED
+        self.timeline_repo.add(
+            TimelineEntry(
+                event_id=event.event_id, type=TimelineEntryType.CONFIRMED
+            )
+        )
 
     def on_reminder_sent(self, event: ReminderSent) -> None:
         stored = self.event_repo.get(event.event_id)
@@ -200,12 +204,13 @@ class HandlerRegistry:
         # 2. Update event tracking fields
         stored.last_reminder_sent_id = event.schedule_item_id
         stored.reminder_last_sent_at = event.sent_at
+        stored.status = EventStatus.REMINDED
 
         # 3. Timeline
         self.timeline_repo.add(
             TimelineEntry(
                 event_id=event.event_id,
-                type="reminder_sent",
+                type=TimelineEntryType.REMINDER_SENT,
                 payload={"schedule_item_id": event.schedule_item_id},
             )
         )

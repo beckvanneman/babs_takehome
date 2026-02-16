@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app.domain.bus import EventBus
 from app.domain.events import (
@@ -14,8 +15,17 @@ from app.domain.events import (
     EventShared,
     ReminderSent,
 )
+from app.domain.models import ParseResponse, ProposedEvent
+from app.main import (
+    app,
+    event_repo as app_event_repo,
+    parse_response_repo as app_parse_response_repo,
+    reminder_pref_repo as app_reminder_pref_repo,
+    reminder_schedule_repo as app_reminder_schedule_repo,
+    timeline_repo as app_timeline_repo,
+)
 from app.domain.handlers import HandlerRegistry
-from app.domain.models import Event
+from app.domain.models import Event, EventStatus, TimelineEntryType
 from app.repos.memory import (
     EventRepository,
     ParseResponseRepository,
@@ -65,7 +75,7 @@ def _make_event(**overrides) -> Event:
         title="Test event",
         start_time=_NOW + timedelta(days=1),
         end_time=_NOW + timedelta(days=1, hours=1),
-        is_confirmed=True,
+        status=EventStatus.CONFIRMED,
     )
     defaults.update(overrides)
     return Event(**defaults)
@@ -121,8 +131,8 @@ def test_event_created_timeline(env):
 
     entries = env.timeline_repo.list_for_event(event.id)
     types = [e.type for e in entries]
-    assert "created" in types
-    assert "reminder_scheduled" in types
+    assert TimelineEntryType.CREATED in types
+    assert TimelineEntryType.REMINDER_SCHEDULED in types
 
 
 # ---------------------------------------------------------------------------
@@ -131,17 +141,17 @@ def test_event_created_timeline(env):
 
 
 def test_no_conflict_stays_confirmed(env):
-    """An event with no overlaps stays is_confirmed=True."""
+    """An event with no overlaps stays confirmed."""
     event = _make_event()
     env.event_repo.add(event)
 
     env.bus.publish(EventCreated(event_id=event.id))
 
-    assert event.is_confirmed is True
+    assert event.status == EventStatus.CONFIRMED
 
 
 def test_conflict_unconfirms_and_requeues(env):
-    """Overlapping events trigger ConflictDetected, un-confirm, and re-queue."""
+    """Overlapping events trigger ConflictDetected, set conflicted status, and re-queue."""
     # existing event
     existing = _make_event(title="Existing meeting")
     env.event_repo.add(existing)
@@ -152,12 +162,12 @@ def test_conflict_unconfirms_and_requeues(env):
 
     env.bus.publish(EventCreated(event_id=new_event.id))
 
-    # Event should be un-confirmed
-    assert new_event.is_confirmed is False
+    # Event should be conflicted
+    assert new_event.status == EventStatus.CONFLICTED
 
     # A conflict timeline entry should exist
     entries = env.timeline_repo.list_for_event(new_event.id)
-    conflict_entries = [e for e in entries if e.type == "conflict_detected"]
+    conflict_entries = [e for e in entries if e.type == TimelineEntryType.CONFLICT_DETECTED]
     assert len(conflict_entries) == 1
     assert existing.id in conflict_entries[0].payload["conflicting_event_ids"]
 
@@ -179,14 +189,14 @@ def test_reconfirm_after_conflict(env):
 
     # First creation detects conflict
     env.bus.publish(EventCreated(event_id=new_event.id))
-    assert new_event.is_confirmed is False
+    assert new_event.status == EventStatus.CONFLICTED
 
     # Human reviews and re-confirms (simulate by setting confirmed and re-publishing)
-    new_event.is_confirmed = True
+    new_event.status = EventStatus.CONFIRMED
     env.bus.publish(EventCreated(event_id=new_event.id))
 
     # Should stay confirmed — conflict check was skipped
-    assert new_event.is_confirmed is True
+    assert new_event.status == EventStatus.CONFIRMED
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +226,7 @@ def test_reminder_sent_updates_last_id(env):
     assert event.last_reminder_sent_id == items[0].id
     assert event.reminder_last_sent_at == sent_at
     assert items[0].was_sent is True
+    assert event.status == EventStatus.REMINDED
 
 
 def test_two_reminders_sequential(env):
@@ -271,7 +282,7 @@ def test_shared_handler(env):
     assert event.was_shared is True
 
     entries = env.timeline_repo.list_for_event(event.id)
-    shared_entries = [e for e in entries if e.type == "shared"]
+    shared_entries = [e for e in entries if e.type == TimelineEntryType.SHARED]
     assert len(shared_entries) == 1
     assert shared_entries[0].payload["targets"] == ["alice", "bob"]
 
@@ -282,14 +293,131 @@ def test_shared_handler(env):
 
 
 def test_confirmed_handler(env):
-    """EventConfirmed sets is_confirmed and adds a timeline entry."""
-    event = _make_event(is_confirmed=False)
+    """EventConfirmed sets status to confirmed and adds a timeline entry."""
+    event = _make_event(status=EventStatus.DRAFT)
     env.event_repo.add(event)
 
     env.bus.publish(EventConfirmed(event_id=event.id))
 
-    assert event.is_confirmed is True
+    assert event.status == EventStatus.CONFIRMED
 
     entries = env.timeline_repo.list_for_event(event.id)
-    confirmed_entries = [e for e in entries if e.type == "confirmed"]
+    confirmed_entries = [e for e in entries if e.type == TimelineEntryType.CONFIRMED]
     assert len(confirmed_entries) == 1
+
+
+# ---------------------------------------------------------------------------
+# API lifecycle coverage
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def api_client():
+    app_event_repo._store.clear()
+    app_parse_response_repo._store.clear()
+    app_timeline_repo._entries.clear()
+    app_reminder_pref_repo._prefs.clear()
+    app_reminder_schedule_repo._items.clear()
+
+    client = TestClient(app)
+    yield client
+
+    app_event_repo._store.clear()
+    app_parse_response_repo._store.clear()
+    app_timeline_repo._entries.clear()
+    app_reminder_pref_repo._prefs.clear()
+    app_reminder_schedule_repo._items.clear()
+
+
+def _seed_pending_parse_response() -> ParseResponse:
+    proposed = ProposedEvent(
+        title="Lifecycle appointment",
+        start_time=_NOW + timedelta(days=1, hours=2),
+        end_time=_NOW + timedelta(days=1, hours=3),
+        location="Clinic",
+        notes="Routine checkup",
+    )
+    pr = ParseResponse(proposed_event=proposed)
+    app_parse_response_repo.add(pr)
+    return pr
+
+
+def test_api_event_lifecycle_confirm_share_remind(api_client: TestClient):
+    """Confirm -> share -> tick should update event state and timeline."""
+    pr = _seed_pending_parse_response()
+
+    confirm_resp = api_client.post(
+        f"/proposed-events/{pr.id}/confirm",
+        json={"proposed_event": pr.proposed_event.model_dump(mode="json")},
+    )
+    assert confirm_resp.status_code == 200
+    event = confirm_resp.json()
+    event_id = event["id"]
+
+    stored = app_event_repo.get(event_id)
+    assert stored is not None
+    assert stored.status == EventStatus.CONFIRMED
+    assert stored.reminders_scheduled is True
+
+    share_resp = api_client.post(
+        f"/events/{event_id}/share",
+        json={"targets": ["alice@example.com", "bob@example.com"]},
+    )
+    assert share_resp.status_code == 200
+    assert share_resp.json()["shared_with"] == ["alice@example.com", "bob@example.com"]
+
+    first_trigger = min(
+        item.trigger_time for item in app_reminder_schedule_repo.list_for_event(event_id)
+    )
+    tick_resp = api_client.post("/tick", params={"now": first_trigger.isoformat()})
+    assert tick_resp.status_code == 200
+    assert len(tick_resp.json()["reminders_fired"]) == 1
+
+    stored = app_event_repo.get(event_id)
+    assert stored is not None
+    assert stored.was_shared is True
+    assert stored.status == EventStatus.REMINDED
+    assert stored.last_reminder_sent_id is not None
+    assert stored.reminder_last_sent_at == first_trigger
+
+    timeline_resp = api_client.get(f"/events/{event_id}/timeline")
+    assert timeline_resp.status_code == 200
+    timeline_types = [entry["type"] for entry in timeline_resp.json()]
+    assert "created" in timeline_types
+    assert "reminder_scheduled" in timeline_types
+    assert "shared" in timeline_types
+    assert "reminder_sent" in timeline_types
+
+
+def test_api_confirm_overlapping_event_becomes_conflicted(api_client: TestClient):
+    """Confirming an overlapping event should mark it conflicted and re-queue review."""
+    existing = _make_event(title="Existing appt")
+    app_event_repo.add(existing)
+
+    pr = ParseResponse(
+        proposed_event=ProposedEvent(
+            title="Overlapping appt",
+            start_time=existing.start_time,
+            end_time=existing.end_time,
+            location="Clinic",
+        )
+    )
+    app_parse_response_repo.add(pr)
+
+    confirm_resp = api_client.post(
+        f"/proposed-events/{pr.id}/confirm",
+        json={"proposed_event": pr.proposed_event.model_dump(mode="json")},
+    )
+    assert confirm_resp.status_code == 200
+    event_id = confirm_resp.json()["id"]
+
+    stored = app_event_repo.get(event_id)
+    assert stored is not None
+    assert stored.status == EventStatus.CONFLICTED
+
+    timeline_types = [e.type for e in app_timeline_repo.list_for_event(event_id)]
+    assert TimelineEntryType.CONFLICT_DETECTED in timeline_types
+
+    pending = app_parse_response_repo.list_pending()
+    assert len(pending) == 1
+    assert pending[0].event_id == event_id

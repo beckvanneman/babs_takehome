@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from app.domain.models import ReminderPreference, ReminderScheduleItem
 from app.repos.memory import ReminderPreferenceRepository, ReminderScheduleRepository
 
+DEFAULT_OFFSETS = [720, 30]  # 12 hours, 30 minutes
+
 
 def schedule_reminders(
     event_id: str,
