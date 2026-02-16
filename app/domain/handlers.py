@@ -69,9 +69,7 @@ class HandlerRegistry:
             return
 
         # 1. Timeline: created
-        self.timeline_repo.add(
-            TimelineEntry(event_id=event.event_id, type="created")
-        )
+        self.timeline_repo.add(TimelineEntry(event_id=event.event_id, type="created"))
 
         # 2. Schedule reminders
         offsets = event.reminder_offsets_minutes or _DEFAULT_OFFSETS
@@ -113,9 +111,7 @@ class HandlerRegistry:
         )
 
         if not already_had_conflict:
-            others = [
-                e for e in self.event_repo.list_all() if e.id != event.event_id
-            ]
+            others = [e for e in self.event_repo.list_all() if e.id != event.event_id]
             conflicts = find_conflicts(stored.start_time, stored.end_time, others)
             if conflicts:
                 self.bus.publish(
@@ -191,9 +187,7 @@ class HandlerRegistry:
             return
 
         stored.is_confirmed = True
-        self.timeline_repo.add(
-            TimelineEntry(event_id=event.event_id, type="confirmed")
-        )
+        self.timeline_repo.add(TimelineEntry(event_id=event.event_id, type="confirmed"))
 
     def on_reminder_sent(self, event: ReminderSent) -> None:
         stored = self.event_repo.get(event.event_id)
