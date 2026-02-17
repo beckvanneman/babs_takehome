@@ -117,6 +117,26 @@ def test_event_created_default_offsets(env):
     assert triggers[1] == event.start_time - timedelta(minutes=30)
 
 
+def test_event_created_is_idempotent_for_reminder_setup(env):
+    """Re-publishing EventCreated should not duplicate reminders/timeline setup."""
+    event = _make_event()
+    env.event_repo.add(event)
+
+    env.bus.publish(EventCreated(event_id=event.id, reminder_offsets_minutes=[30]))
+    env.bus.publish(EventCreated(event_id=event.id, reminder_offsets_minutes=[30]))
+
+    items = env.reminder_schedule_repo.list_for_event(event.id)
+    assert len(items) == 1
+
+    entries = env.timeline_repo.list_for_event(event.id)
+    created_entries = [e for e in entries if e.type == TimelineEntryType.CREATED]
+    scheduled_entries = [
+        e for e in entries if e.type == TimelineEntryType.REMINDER_SCHEDULED
+    ]
+    assert len(created_entries) == 1
+    assert len(scheduled_entries) == 1
+
+
 # ---------------------------------------------------------------------------
 # Timeline entries
 # ---------------------------------------------------------------------------

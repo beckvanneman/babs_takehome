@@ -3,9 +3,11 @@ expanding recurring events into individual child occurrences."""
 
 from __future__ import annotations
 
+import calendar
 import re
 from datetime import datetime, timezone
 
+import dateparser
 from dateutil.rrule import (
     DAILY,
     MONTHLY,
@@ -17,7 +19,6 @@ from dateutil.rrule import (
     TH,
     TU,
     WE,
-    rrule,
     rrulestr,
 )
 
@@ -31,6 +32,20 @@ _DAY_MAP = {
     "friday": FR,
     "saturday": SA,
     "sunday": SU,
+}
+_MONTH_MAP = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
 }
 
 
@@ -84,6 +99,61 @@ def compile_rrule(proposed: ProposedEvent) -> str | None:
         parts.append("BYDAY=" + ",".join(_day_abbr(d) for d in by_day))
 
     return ";".join(parts)
+
+
+def derive_recurrence_end(proposed: ProposedEvent) -> datetime | None:
+    """Parse a human recurrence end description into a UTC datetime.
+
+    Returns ``None`` when no recurrence end is provided or parsing fails.
+    """
+    if not proposed.recurrence_description or not proposed.end_recurrence_description:
+        return None
+
+    anchor = proposed.begin_recurrence or proposed.start_time
+    desc = proposed.end_recurrence_description.strip().lower()
+
+    # Handle phrases like "until end of May" / "through end of April 2027".
+    month_end_match = re.search(
+        r"(?:until|through|thru)?\s*(?:the\s+)?end\s+of\s+([a-z]+)(?:\s+(\d{4}))?",
+        desc,
+    )
+    if month_end_match:
+        month_name = month_end_match.group(1)
+        year_text = month_end_match.group(2)
+        month = _MONTH_MAP.get(month_name)
+        if month:
+            year = int(year_text) if year_text else anchor.year
+            if year_text is None and month < anchor.month:
+                year += 1
+            last_day = calendar.monthrange(year, month)[1]
+            return datetime(year, month, last_day, 23, 59, 59, tzinfo=timezone.utc)
+
+    # Fallback: parse explicit dates after removing common leading words.
+    cleaned = re.sub(
+        r"^\s*(?:until|through|thru|by|on|ending|ends|end)\s+",
+        "",
+        proposed.end_recurrence_description.strip(),
+        flags=re.IGNORECASE,
+    )
+    parsed = dateparser.parse(
+        cleaned,
+        settings={
+            "PREFER_DATES_FROM": "future",
+            "RELATIVE_BASE": anchor.replace(tzinfo=None),
+            "RETURN_AS_TIMEZONE_AWARE": False,
+        },
+    )
+    if parsed is None:
+        return None
+
+    # For date-only inputs, treat recurrence as ending at the end of that day.
+    has_explicit_time = bool(
+        re.search(r"\b\d{1,2}:\d{2}\b|\b(am|pm)\b", cleaned, flags=re.IGNORECASE)
+    )
+    if not has_explicit_time and parsed.hour == 0 and parsed.minute == 0:
+        parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    return parsed.replace(tzinfo=timezone.utc)
 
 
 def expand_recurrence(parent: Event) -> list[Event]:

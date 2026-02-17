@@ -81,5 +81,8 @@ def test_share_event_requires_targets_list(client: TestClient):
     missing_targets = client.post(f"/events/{event.id}/share", json={})
     assert missing_targets.status_code == 422
 
+    empty_targets = client.post(f"/events/{event.id}/share", json={"targets": []})
+    assert empty_targets.status_code == 422
+
     wrong_type = client.post(f"/events/{event.id}/share", json={"targets": "alice"})
     assert wrong_type.status_code == 422

@@ -29,7 +29,7 @@ from app.repos.memory import (
     TimelineRepository,
 )
 from app.services.parser import parse_unstructured_event as _parse
-from app.services.recurrence import compile_rrule
+from app.services.recurrence import compile_rrule, derive_recurrence_end
 
 app = FastAPI(title="Event Lifecycle Service")
 
@@ -105,6 +105,7 @@ def confirm_proposed_event(proposed_event_id: str, body: ConfirmEventRequest) ->
 
     proposed = body.proposed_event
     recurrence_rule = compile_rrule(proposed)
+    recurrence_end = derive_recurrence_end(proposed) if recurrence_rule else None
     event = Event(
         title=proposed.title,
         start_time=proposed.start_time,
@@ -114,7 +115,7 @@ def confirm_proposed_event(proposed_event_id: str, body: ConfirmEventRequest) ->
         status=EventStatus.CONFIRMED,
         proposed_event_id=pr.id,
         recurrence_rule=recurrence_rule,
-        recurrence_end=proposed.begin_recurrence if recurrence_rule else None,
+        recurrence_end=recurrence_end,
     )
     event_repo.add(event)
     parse_response_repo.update_status(proposed_event_id, ParseResponseStatus.CONFIRMED)
