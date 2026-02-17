@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from app.domain.models import Event, ProposedEvent
-from app.services.recurrence import compile_rrule, expand_recurrence
+from app.services.recurrence import (
+    compile_rrule,
+    derive_recurrence_end,
+    expand_recurrence,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +78,44 @@ def test_compile_weekdays():
     assert "FREQ=WEEKLY" in rule
     for day in ("MO", "TU", "WE", "TH", "FR"):
         assert day in rule
+
+
+def test_derive_recurrence_end_for_end_of_month_phrase():
+    proposed = ProposedEvent(
+        title="Soccer practice",
+        start_time=datetime(2026, 3, 5, 15, 30, tzinfo=timezone.utc),
+        end_time=datetime(2026, 3, 5, 17, 0, tzinfo=timezone.utc),
+        recurrence_description="every Thursday",
+        begin_recurrence=datetime(2026, 3, 5, 15, 30, tzinfo=timezone.utc),
+        end_recurrence_description="until end of May",
+    )
+    recurrence_end = derive_recurrence_end(proposed)
+    assert recurrence_end == datetime(2026, 5, 31, 23, 59, 59, tzinfo=timezone.utc)
+
+
+def test_derive_recurrence_end_for_explicit_date_phrase():
+    proposed = ProposedEvent(
+        title="Soccer practice",
+        start_time=datetime(2026, 3, 5, 15, 30, tzinfo=timezone.utc),
+        end_time=datetime(2026, 3, 5, 17, 0, tzinfo=timezone.utc),
+        recurrence_description="every Thursday",
+        begin_recurrence=datetime(2026, 3, 5, 15, 30, tzinfo=timezone.utc),
+        end_recurrence_description="until April 30 2026",
+    )
+    recurrence_end = derive_recurrence_end(proposed)
+    assert recurrence_end == datetime(2026, 4, 30, 23, 59, 59, tzinfo=timezone.utc)
+
+
+def test_derive_recurrence_end_returns_none_when_unparseable():
+    proposed = ProposedEvent(
+        title="Soccer practice",
+        start_time=datetime(2026, 3, 5, 15, 30, tzinfo=timezone.utc),
+        end_time=datetime(2026, 3, 5, 17, 0, tzinfo=timezone.utc),
+        recurrence_description="every Thursday",
+        begin_recurrence=datetime(2026, 3, 5, 15, 30, tzinfo=timezone.utc),
+        end_recurrence_description="for the 2026 season",
+    )
+    assert derive_recurrence_end(proposed) is None
 
 
 # ---------------------------------------------------------------------------

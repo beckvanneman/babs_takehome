@@ -66,45 +66,51 @@ class HandlerRegistry:
         if stored is None:
             return
 
-        # 1. Timeline: created
-        self.timeline_repo.add(
-            TimelineEntry(event_id=event.event_id, type=TimelineEntryType.CREATED)
+        existing_timeline = self.timeline_repo.list_for_event(event.event_id)
+        has_created_entry = any(
+            e.type == TimelineEntryType.CREATED for e in existing_timeline
         )
 
-        # 2. Schedule reminders
-        offsets = event.reminder_offsets_minutes or DEFAULT_OFFSETS
-        items = schedule_reminders(
-            event_id=event.event_id,
-            start_time=stored.start_time,
-            offsets_minutes=offsets,
-            pref_repo=self.reminder_pref_repo,
-            schedule_repo=self.reminder_schedule_repo,
-        )
-        schedule_ids = [item.id for item in items]
-
-        # 3. Mark reminders as scheduled
-        stored.reminders_scheduled = True
-
-        # 4. Timeline: reminder_scheduled
-        self.timeline_repo.add(
-            TimelineEntry(
-                event_id=event.event_id,
-                type=TimelineEntryType.REMINDER_SCHEDULED,
-                payload={"offsets": offsets, "schedule_item_ids": schedule_ids},
+        # 1. Timeline: created (idempotent for accidental re-publish)
+        if not has_created_entry:
+            self.timeline_repo.add(
+                TimelineEntry(event_id=event.event_id, type=TimelineEntryType.CREATED)
             )
-        )
 
-        # 5. Publish ReminderScheduled domain event
-        self.bus.publish(
-            ReminderScheduled(
+        # 2. Schedule reminders once per event
+        if not stored.reminders_scheduled:
+            offsets = event.reminder_offsets_minutes or DEFAULT_OFFSETS
+            items = schedule_reminders(
                 event_id=event.event_id,
-                schedule_item_ids=schedule_ids,
+                start_time=stored.start_time,
+                offsets_minutes=offsets,
+                pref_repo=self.reminder_pref_repo,
+                schedule_repo=self.reminder_schedule_repo,
             )
-        )
+            schedule_ids = [item.id for item in items]
+
+            # 3. Mark reminders as scheduled
+            stored.reminders_scheduled = True
+
+            # 4. Timeline: reminder_scheduled
+            self.timeline_repo.add(
+                TimelineEntry(
+                    event_id=event.event_id,
+                    type=TimelineEntryType.REMINDER_SCHEDULED,
+                    payload={"offsets": offsets, "schedule_item_ids": schedule_ids},
+                )
+            )
+
+            # 5. Publish ReminderScheduled domain event
+            self.bus.publish(
+                ReminderScheduled(
+                    event_id=event.event_id,
+                    schedule_item_ids=schedule_ids,
+                )
+            )
 
         # 6. Check conflicts (skip if this event was already flagged for conflicts —
         #    avoids infinite re-queue loop on re-confirm)
-        existing_timeline = self.timeline_repo.list_for_event(event.event_id)
         already_had_conflict = any(
             e.type == TimelineEntryType.CONFLICT_DETECTED for e in existing_timeline
         )

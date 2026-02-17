@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from app.domain.models import (
     Event,
-    EventStatus,
     ParseResponse,
     ParseResponseStatus,
     ReminderPreference,
@@ -125,62 +124,3 @@ class ReminderScheduleRepository:
 
     def list_for_event(self, event_id: str) -> list[ReminderScheduleItem]:
         return [i for i in self._items if i.event_id == event_id]
-
-
-# ---------------------------------------------------------------------------
-# Seed data – a few near-future events useful for conflict testing
-# ---------------------------------------------------------------------------
-
-
-def _seed_events(repo: EventRepository) -> None:
-    now = datetime.now(timezone.utc)
-
-    # Recurring series: Soccer practice every week for 3 weeks
-    soccer_practice = Event(
-        title="Soccer practice",
-        start_time=now + timedelta(hours=2),
-        end_time=now + timedelta(hours=3),
-        location="City Park Field 4",
-        status=EventStatus.CONFIRMED,
-        recurrence_rule="FREQ=WEEKLY;BYDAY=TH",
-        recurrence_end=now + timedelta(weeks=3),
-    )
-    repo.add(soccer_practice)
-    # Child occurrences
-    for week in (1, 2, 3):
-        repo.add(
-            Event(
-                title="Soccer practice",
-                start_time=now + timedelta(hours=2, weeks=week),
-                end_time=now + timedelta(hours=3, weeks=week),
-                location="City Park Field 4",
-                status=EventStatus.CONFIRMED,
-                parent_event_id=soccer_practice.id,
-            )
-        )
-
-    repo.add(
-        Event(
-            title="Piano lesson",
-            start_time=now + timedelta(hours=4),
-            end_time=now + timedelta(hours=5),
-            location="Music Academy",
-            status=EventStatus.CONFIRMED,
-        )
-    )
-    repo.add(
-        Event(
-            title="Dentist appointment",
-            start_time=now + timedelta(days=1, hours=1),
-            end_time=now + timedelta(days=1, hours=2),
-            location="Downtown Dental",
-            status=EventStatus.DRAFT,
-        )
-    )
-
-
-def create_event_repository() -> EventRepository:
-    """Return an EventRepository pre-loaded with sample data."""
-    repo = EventRepository()
-    _seed_events(repo)
-    return repo

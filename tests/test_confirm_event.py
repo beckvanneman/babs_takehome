@@ -213,6 +213,7 @@ def test_confirm_recurring_creates_event_with_rrule(client: TestClient):
     assert event["recurrence_rule"] is not None
     assert "FREQ=WEEKLY" in event["recurrence_rule"]
     assert "BYDAY=TH" in event["recurrence_rule"]
+    assert event["recurrence_end"] == "2026-05-31T23:59:59Z"
     assert event["proposed_event_id"] == pr.id
 
 
@@ -243,6 +244,7 @@ def test_confirm_with_resolved_ambiguities(client: TestClient):
 
     assert event["recurrence_rule"] is not None
     assert "INTERVAL=2" in event["recurrence_rule"]
+    assert event["recurrence_end"] == "2026-04-30T23:59:59Z"
     assert event["status"] == "confirmed"
 
 

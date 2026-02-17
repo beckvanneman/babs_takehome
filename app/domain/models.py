@@ -4,9 +4,16 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from enum import StrEnum
+from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
+
+try:
+    from enum import StrEnum
+except ImportError:  # pragma: no cover - fallback for older Python runtimes
+
+    class StrEnum(str, Enum):
+        pass
 
 
 class ParseResponseStatus(StrEnum):
@@ -144,4 +151,4 @@ class ConfirmEventRequest(BaseModel):
 
 
 class ShareEventRequest(BaseModel):
-    targets: list[str]
+    targets: list[str] = Field(min_length=1)
